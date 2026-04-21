@@ -8,3 +8,6 @@ tests/
 
 # 虚拟环境
 .venv/
+
+config/secrets.json
+output

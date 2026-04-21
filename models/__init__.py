@@ -1,3 +1,3 @@
-from .company import CompanyModel
+from .company import CompanyModel, AssetType
 
-__all__ = ["CompanyModel"]
+__all__ = ["CompanyModel", "AssetType"]

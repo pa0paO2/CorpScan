@@ -1,7 +1,9 @@
 # 全局请求配置（可后续根据需求调整）
 TIMEOUT: int = 10  # 请求超时时间（秒）
 MAX_CONCURRENT_TASKS: int = 5  # 最大并发任务数（反爬友好）
-
+REQUEST_DELAY_MIN: float = 1.0  # 请求前最小延迟（秒）
+REQUEST_DELAY_MAX: float = 3.0  # 请求前最大延迟（秒）
+ENABLE_REQUEST_DELAY: bool = True  # 是否启用请求延迟
 # 默认请求头（伪造浏览器，避免被识别为爬虫）
 DEFAULT_HEADERS: dict = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",

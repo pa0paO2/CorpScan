@@ -1,5 +1,5 @@
 from .base_spider import BaseSpider
-from .baidu_spider import BaiduSpider
-from .beianx_spider import BeianxSpider  # <--- 加这行
+from .beianx_spider import BeianxSpider
+from .tianyancha.spider import TianyanchaSpider
 
-__all__ = ["BaseSpider", "BaiduSpider", "BeianxSpider"]
+__all__ = ["BaseSpider", "BeianxSpider", "TianyanchaSpider"]
