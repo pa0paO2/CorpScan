@@ -11,3 +11,6 @@ tests/
 
 config/secrets.json
 output
+
+# Python 缓存
+__pycache__/
