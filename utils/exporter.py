@@ -36,35 +36,35 @@ def flatten_dict(d: dict, parent_key: str = "", sep: str = "_") -> dict:
 
 
 def model_to_row(item) -> dict:
-    """将 CompanyModel 转换为字典（统一所有字段）"""
+    """将 CompanyModel 转换为字典（优化字段输出）"""
     row = {
         "公司名称": item.name or "-",
-        "数据来源": item.source or "-",
         "资产类型": item.asset_type or "-",
-        "法定代表人": item.legal_person or "-",
-        "联系电话": item.phone or "-",
-        "联系邮箱": item.email or "-",
-        "注册地址": item.address or "-",
-        "经营状态": item.status or "-",
-        "统一社会信用代码": item.credit_code or "-",
-        "ICP备案号": item.icp_number or "-",
         "域名": item.domain or "-",
+        "ICP备案号": item.icp_number or "-",
         "网站名称": item.site_name or "-",
         "APP名称": item.app_name or "-",
-        "APP版本": item.app_version or "-",
         "APP包名": item.app_package or "-",
         "小程序名称": item.miniapp_name or "-",
         "小程序ID": item.miniapp_id or "-",
-        "社交账号": item.social_account or "-",
-        "粉丝数": item.followers_count or "-",
+        "法定代表人": item.legal_person or "-",
+        "经营状态": item.status or "-",
     }
 
-    # 合并扩展字段（扁平化）
+    # 添加子公司关联信息（如果存在）
     if item.extra:
-        extra_flat = flatten_dict(item.extra)
-        for key, value in extra_flat.items():
-            col_name = f"扩展_{key}"
-            row[col_name] = value
+        if "parentCompany" in item.extra:
+            row["母公司"] = item.extra.get("parentCompany", "-")
+        if "subsidiaryName" in item.extra:
+            row["子公司"] = item.extra.get("subsidiaryName", "-")
+        if "equityPercent" in item.extra:
+            row["股权比例"] = item.extra.get("equityPercent", "-")
+
+        # 其他关键扩展字段
+        for key in ["equityRatio", "registerStatus", "industry", "companyType", "investAmount",
+                    "appType", "classes", "examineDate"]:
+            if key in item.extra:
+                row[key] = item.extra.get(key, "-")
 
     return row
 
@@ -91,18 +91,18 @@ def export_to_csv(results: List, filename: str) -> str:
         all_columns.update(row.keys())
         rows_data.append(row)
 
-    # 固定列顺序 + 扩展字段排序
+    # 固定列顺序（优化后的字段）
     fixed_cols = [
-        "公司名称", "数据来源", "资产类型",
-        "ICP备案号", "域名", "网站名称",
-        "APP名称", "APP版本", "APP包名",
+        "公司名称", "资产类型", "母公司", "子公司", "股权比例",
+        "域名", "ICP备案号", "网站名称",
+        "APP名称", "APP包名",
         "小程序名称", "小程序ID",
-        "法定代表人", "联系电话", "联系邮箱",
-        "注册地址", "经营状态", "统一社会信用代码",
-        "社交账号", "粉丝数",
+        "法定代表人", "经营状态",
+        "注册状态", "行业", "公司类型", "投资金额",
+        "appType", "classes", "examineDate"
     ]
 
-    # 扩展字段排序后追加
+    # 其他字段排序后追加
     extra_cols = sorted([c for c in all_columns if c not in fixed_cols])
     columns = fixed_cols + extra_cols
 
@@ -168,32 +168,53 @@ def export_to_excel(results: List, filename: str) -> str:
     for idx, (asset_type, items) in enumerate(grouped.items()):
         ws = wb.create_sheet(title=asset_type[:31])  # Excel 工作表名最多 31 字符
 
+        # 辅助函数：获取子公司信息
+        def get_sub_info(item):
+            parent = item.extra.get("parentCompany", "") if item.extra else ""
+            sub = item.extra.get("subsidiaryName", "") if item.extra else ""
+            equity = item.extra.get("equityPercent", "") if item.extra else ""
+            return parent, sub, equity
+
+        # 辅助函数：获取审核日期
+        def get_examine_date(item):
+            if item.extra:
+                return item.extra.get("examineDate", "-") or "-"
+            return "-"
+
         # 根据类型确定列
         if asset_type == AssetType.WEBSITE.value:
-            headers = ["序号", "公司名称", "网站名称", "域名", "ICP备案号", "来源"]
-            get_row_data = lambda i, item: [
-                i, item.name, item.site_name, item.domain, item.icp_number, item.source
-            ]
+            headers = ["序号", "公司名称", "网站名称", "域名", "ICP备案号", "审核日期", "母公司", "子公司", "股权比例"]
+            def get_row_data(i, item):
+                parent, sub, equity = get_sub_info(item)
+                return [i, item.name, item.site_name, item.domain, item.icp_number,
+                        get_examine_date(item), parent, sub, equity]
         elif asset_type == AssetType.APP.value:
-            headers = ["序号", "公司名称", "APP名称", "类型", "分类", "来源"]
-            get_row_data = lambda i, item: [
-                i, item.name, item.app_name,
-                item.extra.get("appType", "应用") if item.extra else "应用",
-                item.extra.get("classes", "-") if item.extra else "-",
-                item.source
-            ]
+            headers = ["序号", "公司名称", "APP名称", "类型", "分类", "审核日期", "母公司", "子公司", "股权比例"]
+            def get_row_data(i, item):
+                parent, sub, equity = get_sub_info(item)
+                return [i, item.name, item.app_name,
+                        item.extra.get("appType", "应用") if item.extra else "应用",
+                        item.extra.get("classes", "-") if item.extra else "-",
+                        get_examine_date(item), parent, sub, equity]
         elif asset_type == AssetType.MINIPROGRAM.value:
-            headers = ["序号", "公司名称", "小程序名称", "备案号", "审核日期", "来源"]
-            get_row_data = lambda i, item: [
-                i, item.name, item.miniapp_name, item.icp_number,
-                item.extra.get("examineDate", "-") if item.extra else "-",
-                item.source
-            ]
+            headers = ["序号", "公司名称", "小程序名称", "备案号", "审核日期", "母公司", "子公司", "股权比例"]
+            def get_row_data(i, item):
+                parent, sub, equity = get_sub_info(item)
+                return [i, item.name, item.miniapp_name, item.icp_number,
+                        get_examine_date(item), parent, sub, equity]
+        elif asset_type == AssetType.SUBSIDIARY.value:
+            headers = ["序号", "公司名称", "股权比例", "注册状态", "行业", "母公司"]
+            def get_row_data(i, item):
+                parent = item.extra.get("parentName", "") if item.extra else ""
+                return [i, item.name,
+                        item.extra.get("equityPercent", "-") if item.extra else "-",
+                        item.extra.get("registerStatus", "-") if item.extra else "-",
+                        item.extra.get("industry", "-") if item.extra else "-",
+                        parent]
         else:
-            headers = ["序号", "公司名称", "资产类型", "域名", "备案号", "来源"]
-            get_row_data = lambda i, item: [
-                i, item.name, item.asset_type, item.domain, item.icp_number, item.source
-            ]
+            headers = ["序号", "公司名称", "资产类型", "域名", "备案号"]
+            def get_row_data(i, item):
+                return [i, item.name, item.asset_type, item.domain, item.icp_number]
 
         # 写入表头
         ws.append(headers)

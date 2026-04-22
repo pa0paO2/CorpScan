@@ -138,29 +138,36 @@ class TianyanchaSpider(BaseSpider):
             self.logger.error("缺少必要参数: name 或 icp")
             return []
 
-        # 2. 获取公司ID
+        # 2. 获取公司ID（优先从args传入，避免重复搜索）
         if not self._company_id:
-            self._company_id = search_company_id(company_name, self.custom_headers)
+            self._company_id = args.get("company_id")
+            if not self._company_id:
+                self._company_id = search_company_id(company_name, self.custom_headers)
             if not self._company_id:
                 return []
             self._company_name = company_name
 
-        # 3. 查询控股公司（支持股权筛选，默认查询股权>=0.5的）
+        # 3. 查询控股公司（仅当指定了equity参数时才查询）
         subsidiaries = []
-        min_equity = args.get("equity", 0.5)  # 默认筛选股权>=50%的
-        if isinstance(min_equity, str):
-            try:
-                min_equity = float(min_equity)
-            except ValueError:
-                min_equity = 0.5
+        # 只有当显式传入equity参数时才查询控股公司
+        if args.get("equity") is not None and not args.get("skip_subsidiary_query"):
+            min_equity = args.get("equity", 0.5)
+            if isinstance(min_equity, str):
+                try:
+                    min_equity = float(min_equity)
+                except ValueError:
+                    min_equity = 0.5
 
-        subsidiaries = query_subsidiaries(
-            self._company_id,
-            self._company_name,
-            self.custom_headers,
-            min_equity=min_equity
-        )
-        self.logger.info(f"[控股公司] 获取 {len(subsidiaries)} 条（股权>={min_equity}）")
+            # 如果args中已传入subsidiaries，直接使用（避免重复查询）
+            subsidiaries = args.get("subsidiaries", [])
+            if not subsidiaries:
+                subsidiaries = query_subsidiaries(
+                    self._company_id,
+                    self._company_name,
+                    self.custom_headers,
+                    min_equity=min_equity
+                )
+            self.logger.info(f"[控股公司] 获取 {len(subsidiaries)} 条（股权>={min_equity}）")
 
         # 4. 查询资产（各query函数内部自动分页）
         all_results = []

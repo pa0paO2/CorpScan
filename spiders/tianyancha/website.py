@@ -38,8 +38,11 @@ def query_websites(company_id: str, company_name: str, headers: dict,
         results = []
 
         for item in website_list:
+            # 优先使用传入的公司名称（确保是完整名称）
+            # 如果API返回了不同的名称，记录到extra中
+            api_company_name = item.get("companyName", "")
             results.append(CompanyModel(
-                name=item.get("companyName", company_name),
+                name=company_name,
                 source="tianyancha",
                 icp_number=item.get("liscense", ""),
                 domain=item.get("ym", ""),
@@ -48,6 +51,7 @@ def query_websites(company_id: str, company_name: str, headers: dict,
                 extra={
                     "examineDate": item.get("examineDate", ""),
                     "companyType": item.get("companyType", ""),
+                    "apiCompanyName": api_company_name if api_company_name != company_name else "",
                 }
             ))
 

@@ -29,6 +29,19 @@ def search_company_id(keyword: str, headers: dict) -> Optional[str]:
     :param headers: 请求头
     :return: 公司ID，失败返回None
     """
+    result = search_company(keyword, headers)
+    if result:
+        return result[0]
+    return None
+
+
+def search_company(keyword: str, headers: dict) -> Optional[tuple]:
+    """
+    通过公司名称模糊搜索获取公司ID和完整名称
+    :param keyword: 公司名称
+    :param headers: 请求头
+    :return: (公司ID, 公司完整名称) 元组，失败返回None
+    """
     timestamp = int(datetime.now().timestamp() * 1000)
     url = f"https://capi.tianyancha.com/cloud-tempest/search/suggest/company/main?_={timestamp}"
 
@@ -77,7 +90,7 @@ def search_company_id(keyword: str, headers: dict) -> Optional[str]:
                     matched_name = best_match.get("comName", "")
                     match_type = best_match.get("matchType", "")
                     logger.info(f"模糊搜索成功: {matched_name} (ID: {company_id}, 相似度: {best_score:.3f}, 匹配类型: {match_type})")
-                    return str(company_id)
+                    return (str(company_id), matched_name)
                 else:
                     logger.warning(f"搜索结果与输入关键词相似度过低，放弃匹配")
 

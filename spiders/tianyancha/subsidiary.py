@@ -22,6 +22,9 @@ def query_subsidiaries(
     :param min_equity: 最小股权比例（如0.5表示筛选股权大于50%的），默认0不筛选
     :return: CompanyModel 列表
     """
+    # 防御性处理：确保 min_equity 不为 None
+    if min_equity is None:
+        min_equity = 0.0
     timestamp = int(datetime.now().timestamp() * 1000)
     url = f"https://capi.tianyancha.com/tyc-enterprise-graph/ei/get/penetration/slow/graph/single?_={timestamp}"
 

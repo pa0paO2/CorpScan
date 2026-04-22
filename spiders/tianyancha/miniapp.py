@@ -44,8 +44,10 @@ def query_miniapps(company_id: str, company_name: str, headers: dict,
             service_info = detail.get("icpFilingServiceInformation", {})
             subject_info = detail.get("icpFilingSubjectInformation", {})
 
+            # 优先使用传入的公司名称（确保是完整名称）
+            api_company_name = subject_info.get("organizingName", "")
             results.append(CompanyModel(
-                name=subject_info.get("organizingName", company_name),
+                name=company_name,
                 source="tianyancha",
                 asset_type=AssetType.MINIPROGRAM.value,
                 miniapp_name=app.get("serviceName", ""),
@@ -54,6 +56,7 @@ def query_miniapps(company_id: str, company_name: str, headers: dict,
                     "examineDate": app.get("examineDate", ""),
                     "icpLicenseNumber": service_info.get("icpLicenseNumber", ""),
                     "organizingProperty": subject_info.get("organizingProperty", ""),
+                    "apiCompanyName": api_company_name if api_company_name != company_name else "",
                 }
             ))
 
