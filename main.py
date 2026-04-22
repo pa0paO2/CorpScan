@@ -1,22 +1,27 @@
 import sys
+import os
+from pathlib import Path
 from typing import Dict, Any, List
+from datetime import datetime
 from utils import logger
 from core import Engine
 from spiders import TianyanchaSpider
 from spiders.beianx_spider import get_company_by_icp
+from spiders.tianyancha.search import search_company_id
+from spiders.tianyancha.subsidiary import query_subsidiaries
 from models import AssetType
 from utils.exporter import export_results
 
 
 def parse_args() -> Dict[str, Any]:
-    args = {
+    args: Dict[str, Any] = {
         "name": None,
         "domain": None,
         "icp": None,
         "equity": None,
-        "source": "tianyancha",  # 查询平台：tianyancha/beianx，默认天眼查
         "export": None,   # 导出格式：csv/excel
-        "output": None    # 自定义输出文件名
+        "output": None,   # 自定义输出文件名
+        "subsidiary": False  # 仅查询控股公司
     }
 
     for i in range(len(sys.argv)):
@@ -28,12 +33,12 @@ def parse_args() -> Dict[str, Any]:
             args["icp"] = sys.argv[i+1]
         elif sys.argv[i] == "--equity" and i+1 < len(sys.argv):
             args["equity"] = sys.argv[i+1]
-        elif sys.argv[i] == "--source" and i+1 < len(sys.argv):
-            args["source"] = sys.argv[i+1].lower()
         elif sys.argv[i] == "--export" and i+1 < len(sys.argv):
             args["export"] = sys.argv[i+1].lower()
         elif sys.argv[i] == "--output" and i+1 < len(sys.argv):
             args["output"] = sys.argv[i+1]
+        elif sys.argv[i] == "--subsidiary":
+            args["subsidiary"] = True
     return args
 
 
@@ -42,19 +47,20 @@ def print_help():
     print("CorpScan - 企业资产收集工具")
     print("=" * 50)
     print("参数：")
-    print("  --name      公司名称")
-    print("  --domain    域名")
-    print("  --icp       备案号（自动查公司名）")
-    print("  --equity    股权比例")
-    print("  --source    查询平台（tianyancha/beianx）默认：tianyancha")
-    print("  --export    导出格式（csv/excel）默认：xlsx")
-    print("  --output    自定义输出文件名（如 result.xlsx）")
+    print("  --name        公司名称")
+    print("  --domain      域名")
+    print("  --icp         备案号（自动查公司名）")
+    print("  --equity      股权比例（控股公司筛选）")
+    print("  --subsidiary  仅查询控股公司")
+    print("  --export      导出格式（csv/excel）默认：xlsx")
+    print("  --output      自定义输出文件名（如 result.xlsx）")
     print("\n示例：")
     print("  python main.py --name 字节跳动")
     print("  python main.py --name 腾讯 --export excel")
+    print("  python main.py --name 小米 --subsidiary")
+    print("  python main.py --name 小米 --subsidiary --equity 0.5")
     print("  python main.py --icp 京ICP备10046444号")
-    print("  python main.py --icp 京ICP备10046444号 --source beianx")
-    print("  python main.py --icp 京ICP备10046444号 --source tianyancha --export csv")
+    print("  python main.py --icp 京ICP备10046444号 --export csv")
     print("=" * 50)
 
 
@@ -129,6 +135,86 @@ def print_results_table(results: List):
         print()
 
 
+def setup_output_folder(keyword: str) -> tuple[Path, str]:
+    """
+    创建输出文件夹（格式：output/关键词_YYYYMMDD_HHMMSS）
+    返回：(文件夹路径, 时间戳字符串)
+    """
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    folder_name = f"{keyword}_{timestamp}"
+    folder_path = Path("output") / folder_name
+    folder_path.mkdir(parents=True, exist_ok=True)
+    return folder_path, timestamp
+
+
+def setup_file_logger(folder_path: Path):
+    """设置文件日志处理器，将日志写入指定文件夹"""
+    import logging
+    log_file = folder_path / "run.log"
+    file_handler = logging.FileHandler(log_file, encoding='utf-8')
+    formatter = logging.Formatter(
+        "[%(asctime)s] [%(levelname)s] %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S"
+    )
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+    return log_file
+
+
+def query_subsidiaries_only(args: Dict[str, Any], folder_path: Path, timestamp: str):
+    """仅查询控股公司并导出结果"""
+    company_name = args["name"]
+    equity_str = args.get("equity", "0")
+    try:
+        min_equity = float(equity_str)
+    except ValueError:
+        min_equity = 0.0
+
+    # 获取 spider headers
+    spider = TianyanchaSpider()
+    headers = spider.custom_headers
+
+    # 搜索公司ID
+    print(f"[+] 正在搜索公司: {company_name}")
+    company_id = search_company_id(company_name, headers)
+    if not company_id:
+        print(f"[x] 未找到公司: {company_name}")
+        return []
+
+    print(f"[+] 已获取公司ID: {company_id}")
+
+    # 查询控股公司
+    print(f"[+] 正在查询控股公司（股权>={min_equity}）...")
+    results = query_subsidiaries(company_id, company_name, headers, min_equity)
+    print(f"[+] 找到 {len(results)} 家控股公司")
+
+    # 打印结果表格
+    if results:
+        print(f"\n[+] 共找到 {len(results)} 条控股公司记录\n")
+        print(f"{'序号':<4} {'公司名称':<35} {'股权比例':<12} {'注册状态':<10}")
+        print("-" * 80)
+        for idx, item in enumerate(results, 1):
+            name = item.name[:33] + "..." if len(item.name) > 33 else item.name
+            equity = item.extra.get("equityPercent", "-")
+            status = item.extra.get("registerStatus", "-")[:8]
+            print(f"{idx:<4} {name:<35} {equity:<12} {status:<10}")
+        print()
+
+    # 导出结果
+    export_format = args.get("export") or "xlsx"
+    output_file = args.get("output")
+
+    if not output_file:
+        # 默认命名：公司名称_时间戳.扩展名
+        safe_name = company_name.replace(" ", "_").replace("/", "_")[:20]
+        output_file = f"{safe_name}_{timestamp}.{export_format if export_format != 'excel' else 'xlsx'}"
+
+    output_path = folder_path / output_file
+    export_results(results, format=export_format, filename=str(output_path))
+
+    return results
+
+
 def main():
     args = parse_args()
 
@@ -147,43 +233,55 @@ def main():
         args["name"] = company_name
         print(f"[+] 已获取公司名称: {company_name}\n")
 
+    # 获取搜索关键词（用于创建文件夹）
+    keyword = args["name"]
+
+    # 创建输出文件夹
+    folder_path, timestamp = setup_output_folder(keyword)
+    print(f"[+] 输出文件夹: {folder_path}")
+
+    # 设置文件日志
+    log_file = setup_file_logger(folder_path)
     logger.info(f"启动参数：{args}")
+    logger.info(f"输出文件夹: {folder_path}")
 
-    engine = Engine()
-    source = args.get("source", "tianyancha")
-
-    if source == "tianyancha":
-        engine.register_spider(TianyanchaSpider())
-        logger.info("使用天眼查平台查询")
-    elif source == "beianx":
-        # beianx 只支持备案查询，不查询 APP/小程序
-        from spiders.beianx_spider import BeianxSpider
-        engine.register_spider(BeianxSpider())
-        logger.info("使用备案查询网查询")
-    else:
-        print(f"[x] 未知查询平台: {source}，支持: tianyancha, beianx")
+    # 如果是仅查询控股公司模式
+    if args.get("subsidiary"):
+        query_subsidiaries_only(args, folder_path, timestamp)
+        logger.info("任务完成")
+        print(f"\n[+] 日志已保存: {log_file}")
         return
+
+    # 正常资产查询流程（仅支持天眼查）
+    engine = Engine()
+    engine.register_spider(TianyanchaSpider())
+    logger.info("使用天眼查平台查询")
 
     engine.run(args=args)
     results = engine.get_results()
     print_results_table(results)
 
-    # 导出结果到文件（默认自动导出为 CSV）
+    # 导出结果到文件
     export_format = args.get("export") or "xlsx"
     output_file = args.get("output")
 
-    # 如果指定了输出文件名，根据扩展名推断格式
+    # 如果指定了输出文件名
     if output_file:
         if output_file.lower().endswith(".xlsx"):
             export_format = "excel"
         elif output_file.lower().endswith(".csv"):
             export_format = "csv"
-        export_results(results, format=export_format, filename=output_file)
+        output_path = folder_path / output_file
+        export_results(results, format=export_format, filename=str(output_path))
     else:
-        # 默认自动导出（自动生成文件名）
-        export_results(results, format=export_format)
+        # 默认命名：公司名称_时间戳.扩展名
+        safe_name = args["name"].replace(" ", "_").replace("/", "_")[:20]
+        output_file = f"{safe_name}_{timestamp}.{export_format if export_format != 'excel' else 'xlsx'}"
+        output_path = folder_path / output_file
+        export_results(results, format=export_format, filename=str(output_path))
 
     logger.info("任务完成")
+    print(f"\n[+] 日志已保存: {log_file}")
 
 
 if __name__ == "__main__":

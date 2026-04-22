@@ -43,6 +43,7 @@ from spiders.tianyancha.search import search_company_id
 from spiders.tianyancha.website import query_all_websites as query_websites
 from spiders.tianyancha.app import query_all_apps as query_apps
 from spiders.tianyancha.miniapp import query_all_miniapps as query_miniapps
+from spiders.tianyancha.subsidiary import query_subsidiaries
 from spiders.beianx_spider import get_company_by_icp
 
 
@@ -144,25 +145,78 @@ class TianyanchaSpider(BaseSpider):
                 return []
             self._company_name = company_name
 
-        # 3. 查询资产（各query函数内部自动分页）
+        # 3. 查询控股公司（支持股权筛选，默认查询股权>=0.5的）
+        subsidiaries = []
+        min_equity = args.get("equity", 0.5)  # 默认筛选股权>=50%的
+        if isinstance(min_equity, str):
+            try:
+                min_equity = float(min_equity)
+            except ValueError:
+                min_equity = 0.5
+
+        subsidiaries = query_subsidiaries(
+            self._company_id,
+            self._company_name,
+            self.custom_headers,
+            min_equity=min_equity
+        )
+        self.logger.info(f"[控股公司] 获取 {len(subsidiaries)} 条（股权>={min_equity}）")
+
+        # 4. 查询资产（各query函数内部自动分页）
         all_results = []
         filter_type = args.get("asset_type")
 
         # 网站
         if not filter_type or filter_type == AssetType.WEBSITE.value:
             websites = query_websites(self._company_id, self._company_name, self.custom_headers, page_size=10)
+            # 为主公司记录添加控股公司信息
+            if websites and subsidiaries:
+                for site in websites:
+                    site.extra["subsidiaries"] = [
+                        {
+                            "name": sub.name,
+                            "companyId": sub.extra.get("companyId"),
+                            "equityRatio": sub.extra.get("equityRatio"),
+                            "equityPercent": sub.extra.get("equityPercent"),
+                            "investAmount": sub.extra.get("investAmount"),
+                            "registerStatus": sub.extra.get("registerStatus"),
+                        }
+                        for sub in subsidiaries
+                    ]
             all_results.extend(websites)
             self.logger.info(f"[网站] 获取 {len(websites)} 条")
 
         # APP
         if not filter_type or filter_type == AssetType.APP.value:
             apps = query_apps(self._company_id, self._company_name, self.custom_headers, page_size=10)
+            if apps and subsidiaries:
+                for app in apps:
+                    app.extra["subsidiaries"] = [
+                        {
+                            "name": sub.name,
+                            "companyId": sub.extra.get("companyId"),
+                            "equityRatio": sub.extra.get("equityRatio"),
+                            "equityPercent": sub.extra.get("equityPercent"),
+                        }
+                        for sub in subsidiaries
+                    ]
             all_results.extend(apps)
             self.logger.info(f"[APP] 获取 {len(apps)} 条")
 
         # 小程序
         if not filter_type or filter_type == AssetType.MINIPROGRAM.value:
             miniapps = query_miniapps(self._company_id, self._company_name, self.custom_headers, page_size=10)
+            if miniapps and subsidiaries:
+                for mini in miniapps:
+                    mini.extra["subsidiaries"] = [
+                        {
+                            "name": sub.name,
+                            "companyId": sub.extra.get("companyId"),
+                            "equityRatio": sub.extra.get("equityRatio"),
+                            "equityPercent": sub.extra.get("equityPercent"),
+                        }
+                        for sub in subsidiaries
+                    ]
             all_results.extend(miniapps)
             self.logger.info(f"[小程序] 获取 {len(miniapps)} 条")
 

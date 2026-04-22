@@ -13,6 +13,7 @@ class AssetType(Enum):
     WEIBO = "微博账号"
     DOUYIN = "抖音账号"
     TIKTOK = "TikTok账号"
+    SUBSIDIARY = "控股公司"
 
 
 @dataclass
