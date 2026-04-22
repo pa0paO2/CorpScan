@@ -2,7 +2,8 @@ import sys
 from typing import Dict, Any, List
 from utils import logger
 from core import Engine
-from spiders import BeianxSpider, TianyanchaSpider
+from spiders import TianyanchaSpider
+from spiders.beianx_spider import get_company_by_icp
 from models import AssetType
 from utils.exporter import export_results
 
@@ -13,7 +14,7 @@ def parse_args() -> Dict[str, Any]:
         "domain": None,
         "icp": None,
         "equity": None,
-        "site": "all",
+        "source": "tianyancha",  # 查询平台：tianyancha/beianx，默认天眼查
         "export": None,   # 导出格式：csv/excel
         "output": None    # 自定义输出文件名
     }
@@ -27,8 +28,8 @@ def parse_args() -> Dict[str, Any]:
             args["icp"] = sys.argv[i+1]
         elif sys.argv[i] == "--equity" and i+1 < len(sys.argv):
             args["equity"] = sys.argv[i+1]
-        elif sys.argv[i] == "--site" and i+1 < len(sys.argv):
-            args["site"] = sys.argv[i+1]
+        elif sys.argv[i] == "--source" and i+1 < len(sys.argv):
+            args["source"] = sys.argv[i+1].lower()
         elif sys.argv[i] == "--export" and i+1 < len(sys.argv):
             args["export"] = sys.argv[i+1].lower()
         elif sys.argv[i] == "--output" and i+1 < len(sys.argv):
@@ -43,17 +44,17 @@ def print_help():
     print("参数：")
     print("  --name      公司名称")
     print("  --domain    域名")
-    print("  --icp       备案号")
+    print("  --icp       备案号（自动查公司名）")
     print("  --equity    股权比例")
-    print("  --site      指定爬虫（tianyancha/beianx/all）默认：all")
-    print("  --export    导出格式（csv/excel）默认：csv")
+    print("  --source    查询平台（tianyancha/beianx）默认：tianyancha")
+    print("  --export    导出格式（csv/excel）默认：xlsx")
     print("  --output    自定义输出文件名（如 result.xlsx）")
     print("\n示例：")
-    print("  python main.py --name 字节跳动 --site tianyancha")
-    print("  python main.py --name 腾讯 --site all --export excel")
-    print("  python main.py --name 小米 --export csv")
-    print("  python main.py --name 小米 --output mi_assets.xlsx")
-    print("  python main.py --icp 京ICP123 --site beianx")
+    print("  python main.py --name 字节跳动")
+    print("  python main.py --name 腾讯 --export excel")
+    print("  python main.py --icp 京ICP备10046444号")
+    print("  python main.py --icp 京ICP备10046444号 --source beianx")
+    print("  python main.py --icp 京ICP备10046444号 --source tianyancha --export csv")
     print("=" * 50)
 
 
@@ -130,19 +131,38 @@ def print_results_table(results: List):
 
 def main():
     args = parse_args()
-    if all(v is None for v in args.values()):
+
+    # 检查必要参数：name 或 icp 至少提供一个
+    if not args["name"] and not args["icp"]:
         print_help()
         return
+
+    # 如果提供了 icp 但没有 name，先通过备案号查询公司名
+    if args["icp"] and not args["name"]:
+        print(f"[+] 正在通过 ICP 备案号查询公司名: {args['icp']}")
+        company_name = get_company_by_icp(args["icp"])
+        if not company_name:
+            print(f"[x] 未找到 ICP 备案号对应的公司: {args['icp']}")
+            return
+        args["name"] = company_name
+        print(f"[+] 已获取公司名称: {company_name}\n")
 
     logger.info(f"启动参数：{args}")
 
     engine = Engine()
-    site = args["site"]
-    if site in ["tianyancha", "all"]:
-        engine.register_spider(TianyanchaSpider())
+    source = args.get("source", "tianyancha")
 
-    if site in ["beianx", "all"]:
+    if source == "tianyancha":
+        engine.register_spider(TianyanchaSpider())
+        logger.info("使用天眼查平台查询")
+    elif source == "beianx":
+        # beianx 只支持备案查询，不查询 APP/小程序
+        from spiders.beianx_spider import BeianxSpider
         engine.register_spider(BeianxSpider())
+        logger.info("使用备案查询网查询")
+    else:
+        print(f"[x] 未知查询平台: {source}，支持: tianyancha, beianx")
+        return
 
     engine.run(args=args)
     results = engine.get_results()

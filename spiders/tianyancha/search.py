@@ -39,14 +39,12 @@ def search_company_id(keyword: str, headers: dict) -> Optional[str]:
             # "pageSize": 10,
             # "type": 1,
         }
-        logger.info(f"模糊搜索请求数据: {json_data}")
         resp = downloader.post(url, json_data=json_data, headers=headers)
         if resp.status_code != 200:
             logger.error(f"模糊搜索失败，状态码：{resp.status_code}")
             return None
 
         data = resp.json()
-        logger.info(f"模糊搜索结果: {data}")
 
         if data.get("state") == "ok" and data.get("data"):
             # 注意：实际返回的字段名是 companySuggestList
@@ -94,16 +92,13 @@ def search_company_id(keyword: str, headers: dict) -> Optional[str]:
 
 
 if __name__ == "__main__":
-    # 测试搜索功能
     from spiders.tianyancha.spider import TianyanchaSpider
 
     spider = TianyanchaSpider()
     test_keyword = "小米"
 
-    logger.info(f"测试搜索: {test_keyword}")
     company_id = search_company_id(test_keyword, spider.custom_headers)
-
     if company_id:
-        logger.info(f"✅ 搜索成功: {test_keyword} -> ID: {company_id}")
+        print(f"搜索成功: {test_keyword} -> ID: {company_id}")
     else:
-        logger.warning(f"❌ 未找到公司: {test_keyword}")
+        print(f"未找到公司: {test_keyword}")

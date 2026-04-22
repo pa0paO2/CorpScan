@@ -4,7 +4,7 @@ from core import downloader
 from bs4 import BeautifulSoup
 from urllib.parse import quote
 from utils import logger
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 
 class BeianxSpider(BaseSpider):
@@ -16,7 +16,7 @@ class BeianxSpider(BaseSpider):
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
         "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
         "Referer": "https://www.beianx.cn/",
-        "Cookie": "__51vcke__JfvlrnUmvss1wiTZ=2ed97da4-130f-5e4d-8c2f-8955cae56234; __51vuft__JfvlrnUmvss1wiTZ=1752488893939; acw_tc=707c9f7817763029060142431e9f8bfaf8d90276dd56ff30f8761d0bccbf64; .AspNetCore.Antiforgery.OGq99nrNx5I=CfDJ8NYelk06Dw5AkNNJBvqDFlqxRAJ6Ogdl13aHnsJinXEOiS1ANiB78se-I3D7hj-1StEguN51OkhGY8KHRWhzLyrw273fHoIjpDk8tjidgskrRy8QtbTcScvyKh2Wt5-I3wZ1MGfvKHvqj6-4QshjGGU; __51uvsct__JfvlrnUmvss1wiTZ=36; .AspNetCore.Session=CfDJ8NYelk06Dw5AkNNJBvqDFlpvbE1lO4XBKoB7CLv8RkSEixmKCzlMWyFeIwJ4ngJgg5BQWRJNdyk1bf4D%2Bh2hVD%2BNa9pWMepo5sJyusNHwZAk%2BOySvVeGpxjV8dvFJkLB3wsGXmUfdCaWRJT0ZdkMtD5XsAI0csBCs44O0MrGwinY; __vtins__JfvlrnUmvss1wiTZ=%7B%22sid%22%3A%20%22550c3675-faaa-52f4-9f8d-f7022a675d2d%22%2C%20%22vd%22%3A%203%2C%20%22stt%22%3A%2024914%2C%20%22dr%22%3A%2018951%2C%20%22expires%22%3A%201776304732406%2C%20%22ct%22%3A%201776302932406%7D; machine_str=1667be594e-7222-4270-b889-f40a67dd4b70"
+        "Cookie": "__51vcke__JfvlrnUmvss1wiTZ=2ed97da4-130f-5e4d-8c2f-8955cae56234; __51vuft__JfvlrnUmvss1wiTZ=1752488893939; acw_tc=76b20fb017768226290668087eb24a64eb3e9309910a91631ae5734c598729; .AspNetCore.Antiforgery.OGq99nrNx5I=CfDJ8NYelk06Dw5AkNNJBvqDFlq2UkvS75jSf63l3Wmi4ys-nJVxP4SOQWdlJk9pjXfZmFNzBzKBDMTC5wStwEuWLXU9_waX1bYowdokiKBcmiCa4IIGVmCIZigI4upAP1_5Jec7OabAIN9WvGGInjXEAtQ; __51uvsct__JfvlrnUmvss1wiTZ=38; .AspNetCore.Session=CfDJ8NYelk06Dw5AkNNJBvqDFlpkhgPyjC%2BDyKnp%2Bvso2yt4e0O5%2BAaI68QBsUdaWJQKUAK7wbC7JVAJZltexsNb0AITnBXfRIXLDP2sVzTbMUbhG2IyT272GRAvpQ%2FJOtvjKGuHiLkAukTlFrJlZ8LG%2Fy4iaq50RPInl8NVyPE75w5R; __vtins__JfvlrnUmvss1wiTZ=%7B%22sid%22%3A%20%22e7817e38-69ba-5c9d-b2fc-42a9a07ede05%22%2C%20%22vd%22%3A%2011%2C%20%22stt%22%3A%2095719%2C%20%22dr%22%3A%2011975%2C%20%22expires%22%3A%201776824530523%2C%20%22ct%22%3A%201776822730523%7D; machine_str=22b85b7ced-4af0-4614-be83-37bac78e4654"
     }
 
     def crawl(self, args: dict):
@@ -125,3 +125,42 @@ class BeianxSpider(BaseSpider):
         # 示例URL: https://www.beianx.cn/miniprogram-search/xxx?page=1
         self.logger.warning("小程序备案查询功能待实现")
         return []
+
+
+def get_company_by_icp(icp_number: str) -> Optional[str]:
+    """
+    通过 ICP 备案号查询公司名称（独立函数，供 TianyanchaSpider 调用）
+
+    实现：创建临时 BeianxSpider 实例，调用 parse_page 获取第一行公司名
+
+    :param icp_number: ICP 备案号（如 "京ICP备16020685号" 或 "京ICP备16020685号-1"）
+    :return: 公司名称，未找到返回 None
+    """
+    if not icp_number:
+        logger.warning("ICP 备案号为空")
+        return None
+
+    spider = BeianxSpider()
+    args = {"icp": icp_number}
+
+    results = spider.parse_page(args, page=1, page_size=1)
+    if results and len(results) > 0:
+        company_name = results[0].name
+        logger.info(f"ICP {icp_number} -> 公司: {company_name}")
+        return company_name
+
+    logger.warning(f"ICP 查询无结果: {icp_number}")
+    return None
+
+
+if __name__ == "__main__":
+    # 测试：通过 ICP 备案号查询公司名
+    test_icp = "京ICP备10046444号"
+    company_name = get_company_by_icp(test_icp)
+
+    if company_name:
+        print(f"\n查询成功！")
+        print(f"ICP 备案号: {test_icp}")
+        print(f"公司名称: {company_name}")
+    else:
+        print(f"\n未找到 ICP 备案号对应的公司: {test_icp}")

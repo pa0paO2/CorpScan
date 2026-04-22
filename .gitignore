@@ -1,17 +1,21 @@
-# IDE 配置文件夹（最常用的两个）
+
 .idea/
 .vscode/
 
-# 测试文件夹（你自己放测试代码、临时文件）
+
 test/
 tests/
 
-# 虚拟环境
+
 .venv/
 
-config/secrets.json
-output
 
-# Python 缓存
+/secrets.json
+config/secrets.json
+
+
+output/
+
+# Python
 __pycache__/
 *.py[cod]

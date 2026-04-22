@@ -1,27 +1,67 @@
 import json
+import sys
 from pathlib import Path
 from spiders.base_spider import BaseSpider
 from models import CompanyModel, AssetType
 from utils import logger
 from typing import List, Dict, Any, Optional
 
+
+def _find_secrets_json() -> Path:
+    """
+    查找 secrets.json 配置文件（支持开发和打包环境）
+
+    查找顺序：
+        1. 当前工作目录 (./secrets.json)
+        2. 程序所在目录 (与 exe 同级)
+        3. 项目 config 目录 (开发环境兼容)
+
+    :return: 配置文件路径（可能不存在）
+    """
+    # 1. 当前工作目录
+    cwd_path = Path.cwd() / "secrets.json"
+    if cwd_path.exists():
+        return cwd_path
+
+    # 2. 程序所在目录（打包后的 exe 目录）
+    if getattr(sys, 'frozen', False):
+        # PyInstaller 打包后的 exe 环境
+        exe_dir = Path(sys.executable).parent
+    else:
+        # 普通 Python 环境
+        exe_dir = Path(__file__).parent.parent.parent
+
+    exe_path = exe_dir / "secrets.json"
+    if exe_path.exists():
+        return exe_path
+
+    # 3. 开发环境：config/secrets.json
+    config_path = exe_dir / "config" / "secrets.json"
+    return config_path  # 返回默认路径（即使不存在）
+
 from spiders.tianyancha.search import search_company_id
 from spiders.tianyancha.website import query_all_websites as query_websites
 from spiders.tianyancha.app import query_all_apps as query_apps
 from spiders.tianyancha.miniapp import query_all_miniapps as query_miniapps
+from spiders.beianx_spider import get_company_by_icp
 
 
 class TianyanchaSpider(BaseSpider):
     """
-    天眼查爬虫 - 从 config/secrets.json 读取敏感配置
+    天眼查爬虫 - 从 secrets.json 读取敏感配置
 
-    配置路径：项目根目录/config/secrets.json
-    {
-        "tianyancha": {
-            "X-AUTH-TOKEN": "your_token",
-            "X-TYCID": "your_tycid"
+    配置路径（按优先级）：
+        1. ./secrets.json（当前工作目录）
+        2. ./secrets.json（程序所在目录，与exe同级）
+        3. ./config/secrets.json（开发环境）
+
+    secrets.json 格式：
+        {
+            "tianyancha": {
+                "X-AUTH-TOKEN": "your_token",
+                "X-TYCID": "your_tycid"
+            }
         }
-    }
     """
     name = "tianyancha"
 
@@ -52,16 +92,19 @@ class TianyanchaSpider(BaseSpider):
         """动态加载配置（支持运行时修改 secrets.json）"""
         headers = self._base_headers.copy()
 
-        # 加载 secrets.json
-        config_path = Path(__file__).parent.parent.parent / "config" / "secrets.json"
+        # 查找并加载 secrets.json
+        config_path = _find_secrets_json()
         if config_path.exists():
             try:
                 with open(config_path, 'r', encoding='utf-8') as f:
                     secrets = json.load(f)
                 tyc_secrets = secrets.get("tianyancha", {})
                 headers.update({k: v for k, v in tyc_secrets.items() if v})
+                logger.debug(f"已从 {config_path} 加载配置")
             except Exception as e:
                 logger.warning(f"加载 secrets.json 失败: {e}")
+        else:
+            logger.warning(f"未找到 secrets.json，已尝试路径: {config_path}")
 
         return headers
 
@@ -75,13 +118,23 @@ class TianyanchaSpider(BaseSpider):
         统一入口
 
         参数：
-            - name: 公司名称（必需）
+            - name: 公司名称
+            - icp: ICP备案号（自动查公司名）
             - asset_type: 资产类型过滤（可选，默认查全部）
         """
-        # 1. 验证参数
+        # 1. 获取公司名称
         company_name = args.get("name")
+        icp_number = args.get("icp")
+
+        # 如果没有 name 但有 icp，先通过备案号查询公司名
+        if not company_name and icp_number:
+            company_name = get_company_by_icp(icp_number)
+            if company_name:
+                self.logger.info(f"ICP {icp_number} -> 公司: {company_name}")
+                args["name"] = company_name  # 更新参数供后续使用
+
         if not company_name:
-            self.logger.error("缺少必要参数: name")
+            self.logger.error("缺少必要参数: name 或 icp")
             return []
 
         # 2. 获取公司ID
